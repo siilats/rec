@@ -99,8 +99,8 @@ def test_budget_zero_has_no_think_token(engine, think):
     assert metrics["reasoning_tokens"] == 0 and metrics["thinking_forced_close"] is False
 
 
-def test_follow_up_reusing_the_prefix_equals_a_cold_run(engine, think):
-    """A follow-up turn that reuses the KV of a forced-close answer decodes as a cold run does."""
+def test_follow_up_reusing_the_prefix_equals_a_fresh_split_prefill(engine):
+    """Reused KV matches freshly computed KV with the same prefill boundaries."""
     from rec_mlx.engine import Sampling
 
     ids, tokens, metrics = _run(
@@ -118,9 +118,20 @@ def test_follow_up_reusing_the_prefix_equals_a_cold_run(engine, think):
         return events[-1]["metrics"]
 
     warm = follow()
-    assert warm["cached_prompt_tokens"] > 0, "the follow-up must reuse the prefix"
+    cached = warm["cached_prompt_tokens"]
+    assert 0 < cached < len(ids + tokens), "the follow-up must reuse a partial prefix"
     engine._prompt_cache = None
     engine._prefix_preparation = None
-    cold = follow()
-    assert cold["cached_prompt_tokens"] == 0
-    assert warm["token_ids"] == cold["token_ids"]
+    # A one-shot cold prefill changes the batch shapes and can change BF16 logits
+    # enough to select a different greedy token. Rebuild the cached prefix from
+    # scratch so the comparison tests cache integrity with identical batching.
+    mx = engine.mx
+    with mx.stream(mx.new_stream(mx.gpu)):
+        session = engine.runtime.make_session(max_new_tokens=0)
+        session.prefill((ids + tokens)[:cached], prefix=None)
+        engine._prompt_cache = session.prompt_cache
+        mx.synchronize()
+    del session
+    fresh = follow()
+    assert fresh["cached_prompt_tokens"] == cached
+    assert warm["token_ids"] == fresh["token_ids"]
