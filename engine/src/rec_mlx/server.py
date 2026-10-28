@@ -47,8 +47,20 @@ def reject_messages_budget(body):
 
 
 def make_server(
-    engine, address, metrics_path, *, defaults=Sampling(), api_key=None, grammar_mode="flint"
+    engine,
+    address,
+    metrics_path,
+    *,
+    defaults=Sampling(),
+    api_key=None,
+    grammar_mode="flint",
+    thinking_budget=None,
 ):
+    if thinking_budget is not None:
+        if type(thinking_budget) is not int or thinking_budget < 0:
+            raise ValueError("thinking_budget must be a nonnegative integer")
+        if grammar_mode != "flint":
+            raise ValueError("thinking_budget requires grammar=flint")
     from mlx_lm.server import APIHandler
 
     from .scheduler import Generator
@@ -291,6 +303,8 @@ def make_server(
             super().validate_model_parameters()
             if self.stream and self.logprobs:
                 raise ValueError("Token logprobs require stream=false")
+            if thinking_budget is not None:
+                self.body.setdefault(THINKING_BUDGET_FIELD, thinking_budget)
             budget = self.body.get(THINKING_BUDGET_FIELD)
             if THINKING_BUDGET_FIELD in self.body and (type(budget) is not int or budget < 0):
                 raise ValueError(f"{THINKING_BUDGET_FIELD} must be a nonnegative integer")

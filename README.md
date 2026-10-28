@@ -110,6 +110,16 @@ The response contains generated text in `choices`. For other clients, use
 base URL `http://127.0.0.1:11500/v1`, model `flint`, and the API key from
 `rec auth token`.
 
+Set a server-wide default, including for Claude Code's Anthropic API requests:
+
+```sh
+rec serve --thinking-budget 512
+```
+
+`--thinking-budget 0` suppresses thinking; omit the option for no budget.
+Stop an existing server with `rec stop` before changing its budget.
+OpenAI chat requests can override this default with their own `thinking_budget`.
+
 To bound the reasoning of a chat request, add `"thinking_budget": N`, a
 nonnegative integer. It needs `grammar=flint` (the default). N counts the
 tokens after the model's own `<think>`; when N is reached, Flint closes the
@@ -120,7 +130,7 @@ unclosed `<think>` anywhere is also rejected. `/v1/messages` rejects only
 the request sets `thinking_budget` (0 included), the response `usage` reports
 `reasoning_tokens` and `thinking_forced_close`. Streaming responses report them
 only in the final usage chunk, so set `stream_options.include_usage`. Without a
-budget these keys do not appear.
+request or server-default budget these keys do not appear.
 
 The Anthropic-compatible API is available at
 `http://127.0.0.1:11500/v1/messages`. Point `ANTHROPIC_BASE_URL` at
