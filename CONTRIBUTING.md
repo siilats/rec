@@ -43,6 +43,8 @@ xcode-select --install
 brew install go node uv
 ```
 
+Engine tests and release bundles use standalone CPython 3.14.10, installed by `uv`.
+
 ## Make a change
 
 1. Fork the repository and create a branch from `main`.
