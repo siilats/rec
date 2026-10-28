@@ -47,8 +47,21 @@ def reject_messages_budget(body):
 
 
 def make_server(
-    engine, address, metrics_path, *, defaults=Sampling(), api_key=None, grammar_mode="flint"
+    engine,
+    address,
+    metrics_path,
+    *,
+    defaults=Sampling(),
+    api_key=None,
+    grammar_mode="flint",
+    thinking_budget=None,
+    prompts=False,
 ):
+    if thinking_budget is not None:
+        if type(thinking_budget) is not int or thinking_budget < 0:
+            raise ValueError("thinking_budget must be a nonnegative integer")
+        if grammar_mode != "flint":
+            raise ValueError("thinking_budget requires grammar=flint")
     from mlx_lm.server import APIHandler
 
     from .scheduler import Generator
@@ -218,6 +231,9 @@ def make_server(
 
         def generate_response(self, *args, **kwargs):
             response = super().generate_response(*args, **kwargs)
+            if prompts:
+                for choice in response["choices"]:
+                    self.preview.response(choice.get("delta") or choice.get("message") or {})
             if "usage" in response:
                 response["usage"].update(self.usage_extras())
             for choice in response["choices"]:
@@ -291,6 +307,8 @@ def make_server(
             super().validate_model_parameters()
             if self.stream and self.logprobs:
                 raise ValueError("Token logprobs require stream=false")
+            if thinking_budget is not None:
+                self.body.setdefault(THINKING_BUDGET_FIELD, thinking_budget)
             budget = self.body.get(THINKING_BUDGET_FIELD)
             if THINKING_BUDGET_FIELD in self.body and (type(budget) is not int or budget < 0):
                 raise ValueError(f"{THINKING_BUDGET_FIELD} must be a nonnegative integer")
@@ -345,6 +363,10 @@ def make_server(
 
             from .engine import ContextLimitError
 
+            if prompts:
+                from .previews import Preview
+
+                self.preview = Preview(self.request_id, request.messages)
             try:
                 for message in request.messages:
                     if "reasoning" in message:
@@ -381,6 +403,8 @@ def make_server(
                 )
             except (ValueError, TypeError, KeyError) as error:
                 self._reject(400, str(error))
+                if prompts:
+                    self.preview.finish()
                 return
             if getattr(self, "anthropic", False):
                 status = lambda: getattr(self, "completion_status", 500)  # noqa: E731
@@ -402,6 +426,8 @@ def make_server(
             try:
                 super().handle_completion(request, stop_words)
             finally:
+                if prompts:
+                    self.preview.finish()
                 # Headers can fail before mlx-lm enters its streaming cleanup block.
                 if request.generation_context is not None:
                     request.generation_context.stop()

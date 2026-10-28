@@ -31,6 +31,9 @@ def payload(runtime_dir, manifest):
     compressed = gzip.GzipFile(fileobj=buf, mode="wb", mtime=0)
     with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as tar:
         for source in sorted(runtime_dir.rglob("*")):
+            # Finder rewrites this metadata after extraction; it is not runtime code.
+            if source.name == ".DS_Store":
+                continue
             if source.is_symlink():
                 raise ValueError(f"runtime payload cannot contain symlinks: {source}")
             if source == runtime_dir / "build.json" or source.is_dir():

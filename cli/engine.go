@@ -6,12 +6,21 @@ import (
 	"strconv"
 )
 
-func launchCommand(p Paths, m Manifest, runtimeDir, model string, port int) (string, []string, []string) {
-	return filepath.Join(runtimeDir, runtimeServer), []string{
+func launchCommand(p Paths, m Manifest, runtimeDir, model string, port int, options ...serveSettings) (string, []string, []string) {
+	args := []string{
 		"serve", m.Model, "--model-dir", filepath.Dir(model), "--manifest", model,
 		"--port", strconv.Itoa(port), "--context-limit", strconv.Itoa(m.Context),
 		"--api-key-file", filepath.Join(p.Config, "api-key"),
-	}, []string{"HF_HUB_OFFLINE=1", "TOKENIZERS_PARALLELISM=false"}
+	}
+	if len(options) > 0 {
+		if options[0].thinkingBudget != nil {
+			args = append(args, "--thinking-budget", strconv.Itoa(*options[0].thinkingBudget))
+		}
+		if options[0].prompts {
+			args = append(args, "--prompts")
+		}
+	}
+	return filepath.Join(runtimeDir, runtimeServer), args, []string{"HF_HUB_OFFLINE=1", "TOKENIZERS_PARALLELISM=false"}
 }
 
 func checkAppleChip(name string) error {

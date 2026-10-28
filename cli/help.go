@@ -27,6 +27,8 @@ var commands = []commandHelp{
 	{"serve", "[MODEL]", "Start the model server in this terminal", append([][2]string{
 		{"--context TOKENS", "Total input and output tokens (default: set by the release)"},
 		{"--port PORT", "Local port (default: 11500)"},
+		{"--prompts", "Preview prompt and response content on stderr (first 100 characters)"},
+		{"--thinking-budget TOKENS", "Default reasoning token budget; 0 suppresses thinking (default: unlimited)"},
 	}, developmentOptions...)},
 	{"status", "", "Show whether the server is running", nil},
 	{"stop", "", "Stop the server", nil},
