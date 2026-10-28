@@ -144,12 +144,8 @@ class Engine:
             return_dict=False,
         )
 
-    def generate(
-        self, messages: list[dict], sampling: Sampling, *, grammar=None, thinking_budget=None
-    ):
-        events = self.generate_tokens(
-            self.prompt(messages), sampling, grammar=grammar, thinking_budget=thinking_budget
-        )
+    def generate(self, messages: list[dict], sampling: Sampling, *, grammar=None):
+        events = self.generate_tokens(self.prompt(messages), sampling, grammar=grammar)
         try:
             for event in events:
                 if "metrics" in event:

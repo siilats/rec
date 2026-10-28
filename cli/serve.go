@@ -21,17 +21,16 @@ import (
 )
 
 type Status struct {
-	Engine         string `json:"engine"`
-	Ready          bool   `json:"ready"`
-	Version        string `json:"version"`
-	Model          string `json:"model"`
-	Revision       string `json:"revision"`
-	Runtime        string `json:"runtime_sha256"`
-	Endpoint       string `json:"endpoint"`
-	Context        int    `json:"context"`
-	MaxContext     int    `json:"max_context"`
-	ThinkingBudget *int   `json:"thinking_budget,omitempty"`
-	Instance       string `json:"instance_sha256"`
+	Engine     string `json:"engine"`
+	Ready      bool   `json:"ready"`
+	Version    string `json:"version"`
+	Model      string `json:"model"`
+	Revision   string `json:"revision"`
+	Runtime    string `json:"runtime_sha256"`
+	Endpoint   string `json:"endpoint"`
+	Context    int    `json:"context"`
+	MaxContext int    `json:"max_context"`
+	Instance   string `json:"instance_sha256"`
 }
 
 func instanceKey(m Manifest) string {
@@ -40,17 +39,7 @@ func instanceKey(m Manifest) string {
 	return digest(b)
 }
 
-func sameInstance(s Status, m Manifest, port int, budgets ...*int) bool {
-	var budget *int
-	if len(budgets) > 0 {
-		budget = budgets[0]
-	}
-	if (s.ThinkingBudget == nil) != (budget == nil) {
-		return false
-	}
-	if budget != nil && *s.ThinkingBudget != *budget {
-		return false
-	}
+func sameInstance(s Status, m Manifest, port int) bool {
 	return s.Ready && s.Model == m.Model && s.Runtime == m.RuntimeSHA &&
 		s.Revision == m.Revision && s.Context == m.Context &&
 		s.Instance == instanceKey(m) && s.Endpoint == fmt.Sprintf("http://127.0.0.1:%d/v1", port)
@@ -221,20 +210,11 @@ func probe(ctx context.Context, base, key, model string, phase ...func(string)) 
 	return nil
 }
 
-type serveSettings struct {
-	background     bool
-	thinkingBudget *int
-}
-
-func serve(parent context.Context, p Paths, m Manifest, override string, port int, out io.Writer, options ...serveSettings) error {
-	var settings serveSettings
-	if len(options) > 0 {
-		settings = options[0]
-	}
+func serve(parent context.Context, p Paths, m Manifest, override string, port int, out io.Writer, background ...bool) error {
 	l, e := lock(filepath.Join(p.State, "instance.lock"))
 	if e != nil {
 		if s, err := control(p, "status"); err == nil {
-			if sameInstance(s, m, port, settings.thinkingBudget) {
+			if sameInstance(s, m, port) {
 				newScreen(out).succeeded(m.Model+" is already running", s.Endpoint)
 				return nil
 			}
@@ -251,7 +231,7 @@ func serve(parent context.Context, p Paths, m Manifest, override string, port in
 		return fmt.Errorf("port %d is unavailable; use --port with a free port", port)
 	}
 	check.Close()
-	status := Status{Engine: m.Engine, Version: Version, Model: m.Model, Revision: m.Revision, Runtime: m.RuntimeSHA, Endpoint: "http://" + address + "/v1", Context: m.Context, MaxContext: m.contextLimit(), Instance: instanceKey(m), ThinkingBudget: settings.thinkingBudget}
+	status := Status{Engine: m.Engine, Version: Version, Model: m.Model, Revision: m.Revision, Runtime: m.RuntimeSHA, Endpoint: "http://" + address + "/v1", Context: m.Context, MaxContext: m.contextLimit(), Instance: instanceKey(m)}
 	var mu sync.Mutex
 	socket := filepath.Join(p.State, "control.sock")
 	os.Remove(socket)
@@ -304,7 +284,7 @@ func serve(parent context.Context, p Paths, m Manifest, override string, port in
 	if e != nil {
 		return e
 	}
-	executable, args, extra := launchCommand(p, m, runtimeDir, model, port, settings.thinkingBudget)
+	executable, args, extra := launchCommand(p, m, runtimeDir, model, port)
 	self, e := os.Executable()
 	if e != nil {
 		return e
@@ -322,7 +302,7 @@ func serve(parent context.Context, p Paths, m Manifest, override string, port in
 	// lifecycle logs must not retain potentially sensitive request bodies.
 	child.Stdout = io.Discard
 	child.Stderr = io.Discard
-	if !settings.background {
+	if len(background) <= 0 || !background[0] {
 		child.Stderr = os.Stderr
 	}
 	if e = child.Start(); e != nil {
@@ -370,7 +350,7 @@ func serve(parent context.Context, p Paths, m Manifest, override string, port in
 	mu.Lock()
 	status.Ready = true
 	mu.Unlock()
-	printReady(ui, m, status.Endpoint, settings.background)
+	printReady(ui, m, status.Endpoint, len(background) > 0 && background[0])
 	select {
 	case <-ctx.Done():
 		return nil

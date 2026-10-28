@@ -81,17 +81,7 @@ def main():
         default=True,
         help="use MLX fast CPU/GPU synchronization (default: enabled)",
     )
-    parser.add_argument(
-        "--thinking-budget",
-        type=int,
-        help="reasoning token budget; HTTP default overridden by chat requests (0 suppresses thinking)",
-    )
     args = parser.parse_args()
-    if args.thinking_budget is not None:
-        if args.thinking_budget < 0:
-            parser.error("thinking budget must be a nonnegative integer")
-        if args.grammar != "flint":
-            parser.error("thinking budget requires --grammar flint")
     os.environ["MLX_METAL_FAST_SYNCH"] = "1" if args.fast_sync else "0"
     try:
         settings = Sampling(
@@ -121,7 +111,6 @@ def main():
                 "grammar": args.grammar,
                 "enforce_tool_schemas": args.enforce_tool_schemas,
                 "fast_sync": args.fast_sync,
-                "thinking_budget": args.thinking_budget,
                 "context_limit": args.context_limit,
                 "sampling": asdict(settings),
                 **engine.startup,
@@ -139,7 +128,6 @@ def main():
             defaults=settings,
             api_key=api_key,
             grammar_mode=args.grammar,
-            thinking_budget=args.thinking_budget,
         )
         print(f"Listening on http://127.0.0.1:{server.server_port}/v1", flush=True)
 
@@ -158,16 +146,10 @@ def main():
             server.generator.join()
             server.server_close()
         return
-    chat(
-        engine,
-        settings,
-        args.metrics,
-        grammar_mode=args.grammar,
-        thinking_budget=args.thinking_budget,
-    )
+    chat(engine, settings, args.metrics, grammar_mode=args.grammar)
 
 
-def chat(engine, settings, metrics_path, *, grammar_mode="flint", thinking_budget=None):
+def chat(engine, settings, metrics_path, *, grammar_mode="flint"):
     constraint = engine.constraints.tools() if grammar_mode == "flint" else None
     messages = []
     while True:
@@ -183,9 +165,7 @@ def chat(engine, settings, metrics_path, *, grammar_mode="flint", thinking_budge
             continue
         messages.append({"role": "user", "content": prompt})
         answer = ""
-        events = engine.generate(
-            messages, settings, grammar=constraint, thinking_budget=thinking_budget
-        )
+        events = engine.generate(messages, settings, grammar=constraint)
         try:
             for event in events:
                 if "text" in event:

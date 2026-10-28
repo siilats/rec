@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strconv"
 	"strings"
 	"syscall"
 )
@@ -93,19 +92,10 @@ func run(args []string) error {
 	manifest := flags.String("manifest", "", "")
 	runtimeDir := flags.String("runtime-dir", "", "")
 	var contextTokens int
-	var thinkingBudget *int
 	port := 11500
 	if command == "serve" {
 		flags.IntVar(&contextTokens, "context", 0, "")
 		flags.IntVar(&port, "port", port, "")
-		flags.Func("thinking-budget", "", func(value string) error {
-			budget, err := strconv.Atoi(value)
-			if err != nil || budget < 0 {
-				return fmt.Errorf("thinking budget must be a nonnegative integer")
-			}
-			thinkingBudget = &budget
-			return nil
-		})
 	}
 	flags.SetOutput(io.Discard)
 	if e := flags.Parse(rest); e != nil {
@@ -149,7 +139,7 @@ func run(args []string) error {
 		}
 		return e
 	}
-	return serve(ctx, p, m, *runtimeDir, port, os.Stderr, serveSettings{background: background, thinkingBudget: thinkingBudget})
+	return serve(ctx, p, m, *runtimeDir, port, os.Stderr, background)
 }
 
 func doctor(p Paths, m Manifest, manifestErr error) error {
