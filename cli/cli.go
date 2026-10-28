@@ -94,10 +94,12 @@ func run(args []string) error {
 	runtimeDir := flags.String("runtime-dir", "", "")
 	var contextTokens int
 	var thinkingBudget *int
+	var prompts bool
 	port := 11500
 	if command == "serve" {
 		flags.IntVar(&contextTokens, "context", 0, "")
 		flags.IntVar(&port, "port", port, "")
+		flags.BoolVar(&prompts, "prompts", false, "")
 		flags.Func("thinking-budget", "", func(value string) error {
 			budget, err := strconv.Atoi(value)
 			if err != nil || budget < 0 {
@@ -149,7 +151,7 @@ func run(args []string) error {
 		}
 		return e
 	}
-	return serve(ctx, p, m, *runtimeDir, port, os.Stderr, serveSettings{background: background, thinkingBudget: thinkingBudget})
+	return serve(ctx, p, m, *runtimeDir, port, os.Stderr, serveSettings{background: background, thinkingBudget: thinkingBudget, prompts: prompts})
 }
 
 func doctor(p Paths, m Manifest, manifestErr error) error {

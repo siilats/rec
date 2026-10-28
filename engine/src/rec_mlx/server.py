@@ -55,6 +55,7 @@ def make_server(
     api_key=None,
     grammar_mode="flint",
     thinking_budget=None,
+    prompts=False,
 ):
     if thinking_budget is not None:
         if type(thinking_budget) is not int or thinking_budget < 0:
@@ -230,6 +231,9 @@ def make_server(
 
         def generate_response(self, *args, **kwargs):
             response = super().generate_response(*args, **kwargs)
+            if prompts:
+                for choice in response["choices"]:
+                    self.preview.response(choice.get("delta") or choice.get("message") or {})
             if "usage" in response:
                 response["usage"].update(self.usage_extras())
             for choice in response["choices"]:
@@ -359,6 +363,10 @@ def make_server(
 
             from .engine import ContextLimitError
 
+            if prompts:
+                from .previews import Preview
+
+                self.preview = Preview(self.request_id, request.messages)
             try:
                 for message in request.messages:
                     if "reasoning" in message:
@@ -395,6 +403,8 @@ def make_server(
                 )
             except (ValueError, TypeError, KeyError) as error:
                 self._reject(400, str(error))
+                if prompts:
+                    self.preview.finish()
                 return
             if getattr(self, "anthropic", False):
                 status = lambda: getattr(self, "completion_status", 500)  # noqa: E731
@@ -416,6 +426,8 @@ def make_server(
             try:
                 super().handle_completion(request, stop_words)
             finally:
+                if prompts:
+                    self.preview.finish()
                 # Headers can fail before mlx-lm enters its streaming cleanup block.
                 if request.generation_context is not None:
                     request.generation_context.stop()

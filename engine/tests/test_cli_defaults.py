@@ -12,6 +12,7 @@ class DefaultsTests(unittest.TestCase):
     def test_flint_grammar_and_fast_sync_defaults_and_opt_outs(self):
         for options, fast_sync, grammar, enforce, budget in (
             ([], True, "flint", False, None),
+            (["--prompts"], True, "flint", False, None),
             (["--no-fast-sync"], False, "flint", False, None),
             (["--grammar", "none"], True, "none", False, None),
             (["--enforce-tool-schemas"], True, "flint", True, None),
@@ -51,6 +52,7 @@ class DefaultsTests(unittest.TestCase):
 
                     construct.side_effect = check_defaults
                     main()
+                    self.assertEqual(make.call_args.kwargs["prompts"], "--prompts" in options)
                     self.assertEqual(make.call_args.kwargs["grammar_mode"], grammar)
                     self.assertEqual(make.call_args.kwargs["thinking_budget"], budget)
                     self.assertEqual(

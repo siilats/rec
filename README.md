@@ -85,6 +85,37 @@ rec serve
 Keep this terminal open. When `flint is ready.` appears, connect a client from
 another terminal.
 
+For progress during long agent or Harbor runs, opt into content previews:
+
+```bash
+rec serve --prompts
+```
+
+`--prompts` logs the first 100 Unicode code points of the newest user input or tool result
+and the assistant's response to stderr, alongside the existing diagnostics.
+Each line includes the same server-generated request ID, including while a
+request waits in the queue. Streaming assistant text is printed in fragments
+as it arrives, stopping after 100 characters total. The API response and SSE
+stream remain complete. Terminal controls and invisible formatting characters
+are escaped after truncation; escapes can occupy more than 100 display columns.
+
+For conversations with tools, the prompt preview selects the newest tool result
+instead of repeating the original task. Injected `<system-reminder>` blocks are
+removed from the preview before truncation; reminder-only messages are skipped.
+Text content blocks are joined; images and tool schemas are omitted. These
+changes affect diagnostics only: the model still receives the complete prompt.
+Assistant text takes precedence over
+reasoning and tool calls. If there is no assistant text, a bounded tool-call
+name/arguments preview or reasoning preview is labeled `tool-only` or
+`reasoning-only` when the request finishes; empty responses are labeled `empty`.
+
+Previews are off by default. Explicitly requested previews can contain private
+user content, including secrets pasted into prompts or returned by the model.
+The preview logger never reads authentication headers, API keys, or configuration
+secrets. Keep this terminal private and take care when redirecting stderr.
+Start serving with `--prompts` before attaching a harness; an existing server
+with a different preview setting must be stopped first with `rec stop`.
+
 To use your own install of pi or OpenCode, run:
 
 ```bash

@@ -82,11 +82,18 @@ def main():
         help="use MLX fast CPU/GPU synchronization (default: enabled)",
     )
     parser.add_argument(
+        "--prompts",
+        action="store_true",
+        help="preview user content and responses on stderr (first 100 characters; serve only)",
+    )
+    parser.add_argument(
         "--thinking-budget",
         type=int,
         help="reasoning token budget; HTTP default overridden by chat requests (0 suppresses thinking)",
     )
     args = parser.parse_args()
+    if args.prompts and args.command != "serve":
+        parser.error("--prompts requires serve")
     if args.thinking_budget is not None:
         if args.thinking_budget < 0:
             parser.error("thinking budget must be a nonnegative integer")
@@ -140,6 +147,7 @@ def main():
             api_key=api_key,
             grammar_mode=args.grammar,
             thinking_budget=args.thinking_budget,
+            prompts=args.prompts,
         )
         print(f"Listening on http://127.0.0.1:{server.server_port}/v1", flush=True)
 

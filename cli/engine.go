@@ -6,14 +6,19 @@ import (
 	"strconv"
 )
 
-func launchCommand(p Paths, m Manifest, runtimeDir, model string, port int, budgets ...*int) (string, []string, []string) {
+func launchCommand(p Paths, m Manifest, runtimeDir, model string, port int, options ...serveSettings) (string, []string, []string) {
 	args := []string{
 		"serve", m.Model, "--model-dir", filepath.Dir(model), "--manifest", model,
 		"--port", strconv.Itoa(port), "--context-limit", strconv.Itoa(m.Context),
 		"--api-key-file", filepath.Join(p.Config, "api-key"),
 	}
-	if len(budgets) > 0 && budgets[0] != nil {
-		args = append(args, "--thinking-budget", strconv.Itoa(*budgets[0]))
+	if len(options) > 0 {
+		if options[0].thinkingBudget != nil {
+			args = append(args, "--thinking-budget", strconv.Itoa(*options[0].thinkingBudget))
+		}
+		if options[0].prompts {
+			args = append(args, "--prompts")
+		}
 	}
 	return filepath.Join(runtimeDir, runtimeServer), args, []string{"HF_HUB_OFFLINE=1", "TOKENIZERS_PARALLELISM=false"}
 }

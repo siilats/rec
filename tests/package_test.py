@@ -22,6 +22,8 @@ with tempfile.TemporaryDirectory(prefix="rec-package-test-") as td:
     server.write_text("#!/bin/sh\nexit 0\n")
     server.chmod(0o755)
     (runtime / "python/bin/README").write_text("nested runtime file\n")
+    (runtime / ".DS_Store").write_bytes(b"Finder metadata")
+    (runtime / "python/.DS_Store").write_bytes(b"nested Finder metadata")
     output = work / "rec-darwin-arm64"
     base = [
         sys.executable,

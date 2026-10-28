@@ -31,6 +31,7 @@ type Status struct {
 	Context        int    `json:"context"`
 	MaxContext     int    `json:"max_context"`
 	ThinkingBudget *int   `json:"thinking_budget,omitempty"`
+	Prompts        bool   `json:"prompts,omitempty"`
 	Instance       string `json:"instance_sha256"`
 }
 
@@ -40,10 +41,14 @@ func instanceKey(m Manifest) string {
 	return digest(b)
 }
 
-func sameInstance(s Status, m Manifest, port int, budgets ...*int) bool {
-	var budget *int
-	if len(budgets) > 0 {
-		budget = budgets[0]
+func sameInstance(s Status, m Manifest, port int, options ...serveSettings) bool {
+	var settings serveSettings
+	if len(options) > 0 {
+		settings = options[0]
+	}
+	budget := settings.thinkingBudget
+	if s.Prompts != settings.prompts {
+		return false
 	}
 	if (s.ThinkingBudget == nil) != (budget == nil) {
 		return false
@@ -223,6 +228,7 @@ func probe(ctx context.Context, base, key, model string, phase ...func(string)) 
 
 type serveSettings struct {
 	background     bool
+	prompts        bool
 	thinkingBudget *int
 }
 
@@ -234,7 +240,7 @@ func serve(parent context.Context, p Paths, m Manifest, override string, port in
 	l, e := lock(filepath.Join(p.State, "instance.lock"))
 	if e != nil {
 		if s, err := control(p, "status"); err == nil {
-			if sameInstance(s, m, port, settings.thinkingBudget) {
+			if sameInstance(s, m, port, settings) {
 				newScreen(out).succeeded(m.Model+" is already running", s.Endpoint)
 				return nil
 			}
@@ -251,7 +257,7 @@ func serve(parent context.Context, p Paths, m Manifest, override string, port in
 		return fmt.Errorf("port %d is unavailable; use --port with a free port", port)
 	}
 	check.Close()
-	status := Status{Engine: m.Engine, Version: Version, Model: m.Model, Revision: m.Revision, Runtime: m.RuntimeSHA, Endpoint: "http://" + address + "/v1", Context: m.Context, MaxContext: m.contextLimit(), Instance: instanceKey(m), ThinkingBudget: settings.thinkingBudget}
+	status := Status{Engine: m.Engine, Version: Version, Model: m.Model, Revision: m.Revision, Runtime: m.RuntimeSHA, Endpoint: "http://" + address + "/v1", Context: m.Context, MaxContext: m.contextLimit(), Instance: instanceKey(m), ThinkingBudget: settings.thinkingBudget, Prompts: settings.prompts}
 	var mu sync.Mutex
 	socket := filepath.Join(p.State, "control.sock")
 	os.Remove(socket)
@@ -304,7 +310,7 @@ func serve(parent context.Context, p Paths, m Manifest, override string, port in
 	if e != nil {
 		return e
 	}
-	executable, args, extra := launchCommand(p, m, runtimeDir, model, port, settings.thinkingBudget)
+	executable, args, extra := launchCommand(p, m, runtimeDir, model, port, settings)
 	self, e := os.Executable()
 	if e != nil {
 		return e
