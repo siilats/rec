@@ -155,7 +155,7 @@ def chat(engine, settings, metrics_path, *, grammar_mode="flint"):
     while True:
         try:
             prompt = input("\nYou: ")
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             print()
             return
         if prompt == "/quit":

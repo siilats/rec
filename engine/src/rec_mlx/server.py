@@ -33,6 +33,7 @@ class Server(ThreadingHTTPServer):
     # The default backlog of 5 resets a burst of connections before the accept loop takes them.
     request_queue_size = 32
 
+
 class MissingMetricsError(RuntimeError):
     pass
 
@@ -144,7 +145,7 @@ def make_server(
                     # mlx-lm buffered a 200 status line before building the response.
                     self._headers_buffer = []
                     self._reject(500, str(error))
-            except (BrokenPipeError, ConnectionResetError):
+            except BrokenPipeError, ConnectionResetError:
                 logging.info("Client disconnected; cancelling its generation")
             finally:
                 admission.release()

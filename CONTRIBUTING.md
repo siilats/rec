@@ -40,7 +40,7 @@ Before making a change, install the development requirements using
 
 ```sh
 xcode-select --install
-brew install go node uv
+brew install go node uv bun
 ```
 
 Engine tests and release bundles use standalone CPython 3.14.10, installed by `uv`.
