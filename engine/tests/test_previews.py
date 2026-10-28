@@ -24,27 +24,42 @@ def previews(caplog):
 def test_prompt_and_response_limits(caplog, text):
     caplog.set_level(logging.INFO)
     preview = Preview("request-one", [{"role": "user", "content": text}])
-    preview.response({"content": text})
+    preview.response({"reasoning": text})
     preview.finish()
     rows = previews(caplog)
-    assert len(rows) == 2
+    assert len(rows) == (2 if text else 1)
     assert rows[0].endswith(terminal_text(text[:100]))
-    assert rows[1].endswith(terminal_text(text[:100]))
+    if text:
+        assert rows[1].endswith(terminal_text(text[:100]))
     assert all("[request-one]" in row for row in rows)
 
 
-def test_streaming_is_immediate_and_shares_a_unicode_limit(caplog):
+def test_streaming_combines_fragments_into_one_bounded_line(caplog):
     caplog.set_level(logging.INFO)
     preview = Preview("stream", [{"role": "user", "content": "go"}])
-    preview.response({"reasoning": "hidden thought"})
+    preview.response({"content": "answer ignored", "tool_calls": [{"function": {"name": "tool"}}]})
     assert len(previews(caplog)) == 1
-    preview.response({"content": "😀" * 60})
-    assert previews(caplog)[-1].endswith(terminal_text("😀" * 60))
-    preview.response({"content": "界" * 70})
-    assert previews(caplog)[-1].endswith(terminal_text("界" * 40))
-    preview.response({"content": "MUST NOT APPEAR"})
+    preview.response({"reasoning": "😀" * 60})
+    assert len(previews(caplog)) == 1  # No per-token lines.
+    preview.response({"reasoning_content": "界" * 70})
+    assert previews(caplog)[-1].endswith(terminal_text("😀" * 60 + "界" * 40))
+    preview.response({"reasoning": "MUST NOT APPEAR"})
     preview.finish()
-    assert len(previews(caplog)) == 3
+    assert len(previews(caplog)) == 2
+
+
+def test_short_stream_flushes_one_line_on_finish(caplog):
+    caplog.set_level(logging.INFO)
+    preview = Preview("short-stream", [])
+    for part in ("[6]", "=0 →", " left z=1.0"):
+        preview.response({"reasoning": part})
+        assert len(previews(caplog)) == 1
+    preview.finish()
+    preview.finish()
+    preview.response({"reasoning": "ignored after finish"})
+    rows = previews(caplog)
+    assert len(rows) == 2
+    assert rows[-1].endswith('response thinking: "[6]=0 → left z=1.0"')
 
 
 def test_latest_input_in_multimessage_and_tool_conversation(caplog):
@@ -78,33 +93,34 @@ def test_latest_input_in_multimessage_and_tool_conversation(caplog):
     assert previews(caplog)[-1].endswith('prompt empty: ""')
 
 
-@pytest.mark.parametrize(
-    "message,label,text",
-    [
-        ({"reasoning": "think"}, "reasoning-only", "think"),
-        (
-            {"tool_calls": [{"function": {"name": "lookup", "arguments": '{"q":1}'}}]},
-            "tool-only",
-            'lookup{"q":1}',
-        ),
-        ({}, "empty", ""),
-    ],
-)
-def test_fallback_labels(caplog, message, label, text):
+@pytest.mark.parametrize("message,text", [
+    ({"reasoning": "think"}, "think"),
+    ({"reasoning_content": "think", "content": "answer"}, "think"),
+    ({"content": [{"type": "thinking", "thinking": "first"},
+                  {"type": "tool_use", "input": {"secret": "ignore"}},
+                  {"type": "text", "text": "ignore"},
+                  {"type": "thinking", "thinking": "second"}]}, "firstsecond"),
+    ({"tool_calls": [{"function": {"name": "lookup", "arguments": '{"q":1}'}}]}, ""),
+    ({"content": "assistant answer"}, ""),
+    ({}, ""),
+])
+def test_only_thinking_is_logged(caplog, message, text):
     caplog.set_level(logging.INFO)
-    preview = Preview("fallback", [])
+    preview = Preview("thinking", [])
     preview.response(message)
     preview.finish()
     preview.finish()
-    assert len(previews(caplog)) == 2
-    assert previews(caplog)[-1].endswith(f"response {label}: {terminal_text(text)}")
+    rows = previews(caplog)
+    assert len(rows) == (2 if text else 1)
+    if text:
+        assert rows[-1].endswith(f"response thinking: {terminal_text(text)}")
 
 
 def test_controls_are_escaped_after_counting_source_characters(caplog):
     caplog.set_level(logging.INFO)
     text = "\x1b[31m\r\n\t\x00\x7f\x85\u202e\u2028\ud800" + "界" * 150
     preview = Preview("safe", [{"role": "user", "content": text}])
-    preview.response({"content": text})
+    preview.response({"reasoning": text})
     preview.finish()
     for row in previews(caplog):
         assert row.endswith(terminal_text(text[:100]))
@@ -133,7 +149,22 @@ class PreviewHTTPTests(ServerCase):
         finally:
             conn.close()
 
+    def enable_thinking(self):
+        tokenizer = self.server.generator.tokenizer
+        tokenizer._think_start = "<think>"
+        tokenizer._think_end = "</think>"
+        tokenizer._think_start_tokens = (7,)
+        tokenizer._think_end_tokens = (8,)
+        original = self.engine.generate_tokens
+
+        def thinking(*args, **kwargs):
+            yield {"token": 7, "text": "", "finish_reason": None}
+            yield from original(*args, **kwargs)
+
+        self.engine.generate_tokens = thinking
+
     def test_stream_and_nonstream_payloads_are_complete(self):
+        self.enable_thinking()
         self.engine.context_limit = 512
         for stream in (False, True):
             with self.subTest(stream=stream), self.assertLogs(level="INFO") as logs:
@@ -149,22 +180,23 @@ class PreviewHTTPTests(ServerCase):
             self.assertTrue(all(f"[{request_id}]" in row for row in rows))
             self.assertNotIn("configuration-secret", "\n".join(rows))
             fragments = [
-                json.loads(row.split("response assistant: ")[1])
+                json.loads(row.split("response thinking: ")[1])
                 for row in rows
-                if "response assistant:" in row
+                if "response thinking:" in row
             ]
             self.assertEqual("".join(fragments), "x" * 100)
             if stream:
                 chunks = [
                     json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: {")
                 ]
-                text = "".join(c["choices"][0]["delta"].get("content", "") for c in chunks)
+                text = "".join(c["choices"][0]["delta"].get("reasoning", "") for c in chunks)
                 self.assertIn("data: [DONE]", body)
             else:
-                text = json.loads(body)["choices"][0]["message"]["content"]
+                text = json.loads(body)["choices"][0]["message"]["reasoning"]
             self.assertEqual(text, "x" * 150)
 
     def test_anthropic_previews_and_payload(self):
+        self.enable_thinking()
         with self.assertLogs(level="INFO") as logs:
             status, body = self.post(
                 "/v1/messages",
@@ -175,9 +207,9 @@ class PreviewHTTPTests(ServerCase):
                 },
             )
         self.assertEqual(status, 200, body)
-        self.assertEqual(json.loads(body)["content"][0]["text"], "xx")
+        self.assertEqual(json.loads(body)["content"][0]["thinking"], "xx")
         self.assertTrue(any('prompt user: "BB"' in row for row in logs.output))
-        self.assertTrue(any('response assistant: "xx"' in row for row in logs.output))
+        self.assertTrue(any('response thinking: "xx"' in row for row in logs.output))
 
     def test_queued_tool_conversation_has_distinct_association(self):
         started = threading.Event()
@@ -229,16 +261,12 @@ class PreviewHTTPTests(ServerCase):
                 self.assertEqual(first.result()[0], 200)
                 self.assertEqual(second.result()[0], 200)
                 rows = [r.getMessage() for r in logs.records if "rec_preview" in r.getMessage()]
-                self.assertEqual(len(rows), 4)
-                for prompt in rows[:2]:
-                    matching = [
-                        row for row in rows[2:] if row.split("]")[0] == prompt.split("]")[0]
-                    ]
-                    self.assertEqual(len(matching), 1)
-                    self.assertTrue(matching[0].endswith('response assistant: "xx"'))
+                self.assertEqual(len(rows), 2)  # Tool/final-answer output stays silent.
                 self.assertNotIn("private", "\n".join(rows))
 
     def test_preview_arrives_before_stream_finishes(self):
+        self.enable_thinking()
+        self.engine.context_limit = 512
         # Pause the decoder after an early chunk; no final response exists at this point.
         original = self.engine.generate_tokens
         first = threading.Event()
@@ -247,18 +275,18 @@ class PreviewHTTPTests(ServerCase):
         def paused(*args, **kwargs):
             for i, event in enumerate(original(*args, **kwargs)):
                 yield event
-                if i == 15:
+                if i == 120:
                     first.set()
                     assert proceed.wait(3)
 
         with patch.object(self.engine, "generate_tokens", side_effect=paused):
             with self.assertLogs(level="INFO") as logs, ThreadPoolExecutor() as pool:
-                result = pool.submit(self.chat, max_tokens=28, stream=True)
+                result = pool.submit(self.chat, max_tokens=150, stream=True)
                 try:
                     self.assertTrue(first.wait(3))
                     # The HTTP consumer and decoder run on separate threads.
                     deadline = time.monotonic() + 2
-                    while not any("response assistant:" in row for row in logs.output):
+                    while not any("response thinking:" in row for row in logs.output):
                         self.assertLess(time.monotonic(), deadline)
                         time.sleep(0.01)
                     self.assertFalse(result.done())

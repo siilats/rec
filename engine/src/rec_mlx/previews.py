@@ -53,9 +53,8 @@ def message_text(content):
 class Preview:
     def __init__(self, request_id, messages):
         self.request_id = request_id
-        self.count = 0
-        self.reasoning = ""
-        self.tools = ""
+        self.thinking = ""
+        self.reported = False
         self.finished = False
         role, text = prompt_preview(messages)
         self.emit("prompt " + role, text)
@@ -65,26 +64,29 @@ class Preview:
 
     def response(self, message):
         """Observe parsed API messages/deltas without modifying any model/API data."""
-        text = message.get("content") or ""
-        fragment = text[: LIMIT - self.count]
-        if fragment:
-            self.emit("response assistant", fragment)
-            self.count += len(fragment)
-        reasoning = message.get("reasoning") or message.get("reasoning_content") or ""
-        self.reasoning += reasoning[: LIMIT - len(self.reasoning)]
-        for call in message.get("tool_calls") or ():
-            function = call.get("function") or {}
-            text = (function.get("name") or "") + (function.get("arguments") or "")
-            self.tools += text[: LIMIT - len(self.tools)]
+        if self.finished or self.reported:
+            return
+        content = message.get("content")
+        if isinstance(content, list):
+            text = "".join(
+                block.get("thinking", "")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "thinking"
+                and isinstance(block.get("thinking"), str)
+            )
+        else:
+            # The server observes OpenAI deltas before translating reasoning into
+            # Anthropic content[{type: thinking, thinking: ...}] blocks.
+            text = message.get("reasoning") or message.get("reasoning_content") or ""
+        self.thinking += text[: LIMIT - len(self.thinking)]
+        if len(self.thinking) == LIMIT:
+            self._report_thinking()
+
+    def _report_thinking(self):
+        if self.thinking and not self.reported:
+            self.emit("response thinking", self.thinking)
+            self.reported = True
 
     def finish(self):
-        if self.finished:
-            return
+        self._report_thinking()
         self.finished = True
-        if not self.count:
-            if self.tools:
-                self.emit("response tool-only", self.tools)
-            elif self.reasoning:
-                self.emit("response reasoning-only", self.reasoning)
-            else:
-                self.emit("response empty", "")
