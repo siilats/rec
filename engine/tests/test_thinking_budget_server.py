@@ -70,7 +70,12 @@ class ServerCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.engine = ThinkEngine()
-        self.server = make_server(self.engine, ("127.0.0.1", 0), Path(self.temp.name) / "metrics")
+        self.server = make_server(
+            self.engine,
+            ("127.0.0.1", 0),
+            Path(self.temp.name) / "metrics",
+            **getattr(self, "server_options", {}),
+        )
         self.thread = threading.Thread(
             target=self.server.serve_forever, kwargs={"poll_interval": 0.01}
         )
@@ -216,3 +221,32 @@ class UsageTest(ServerCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DefaultBudgetTest(ServerCase):
+    server_options = {"thinking_budget": BUDGET}
+
+    def test_default_applies_and_request_can_override_with_zero(self):
+        for options, expected in [({}, BUDGET), ({"thinking_budget": 0}, 0)]:
+            status, text = self.chat(max_tokens=2, **options)
+            self.assertEqual(status, OK, text)
+            self.assertEqual(self.engine.extra[-1]["thinking_budget"], expected)
+
+    def test_default_applies_to_anthropic_requests(self):
+        status, text = self.post(
+            "/v1/messages",
+            {
+                "model": "flint",
+                "max_tokens": 2,
+                "messages": [{"role": "user", "content": "BB"}],
+            },
+        )
+        self.assertEqual(status, OK, text)
+        self.assertEqual(self.engine.extra[-1]["thinking_budget"], BUDGET)
+
+    def test_streaming_default_reports_budget_metrics(self):
+        self.assertEqual(self.stream_usage()["reasoning_tokens"], self.engine.reasoning)
+        self.assertEqual(self.engine.extra[-1]["thinking_budget"], BUDGET)
+
+    def test_default_cannot_silently_disable_grammar(self):
+        self.assertEqual(self.chat(max_tokens=2, grammar="none")[0], BAD)
