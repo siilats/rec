@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "rec-mlx"
 version = "0.1.0"
 description = "Flint inference engine for Apple Silicon"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "mlx==0.32.4",
     "mlx-lm==0.31.3",

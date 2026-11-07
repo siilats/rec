@@ -378,3 +378,16 @@ print(json.dumps(sorted(m for m in sys.modules if m == "mlx" or m.startswith("ml
     done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == "[]"
+
+
+@pytest.mark.parametrize("cached", [0, len(PROMPT)])
+def test_prefill_log_appends_rate_from_existing_timer(monkeypatch, caplog, cached):
+    engine = build(monkeypatch, [])
+    engine.session.cached_tokens = cached
+    with caplog.at_level("INFO"):
+        _, _, metrics = run(engine, 1)
+    new = len(PROMPT) - cached
+    speed = f"{new / metrics['prefill_seconds']:.0f} t/s" if new else "n/a t/s"
+    assert caplog.messages == [
+        f"Prefill: prompt={len(PROMPT)} common_prefix=0 reused={cached} new={new} {speed}"
+    ]
