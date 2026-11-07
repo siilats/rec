@@ -312,7 +312,11 @@ class Engine:
             speed = f"{new_tokens / elapsed:.0f} t/s" if new_tokens and elapsed > 0 else "n/a t/s"
             logging.info(
                 "Prefill: prompt=%d common_prefix=%d reused=%d new=%d %s",
-                len(ids), session.common_prefix_tokens, session.cached_tokens, new_tokens, speed,
+                len(ids),
+                session.common_prefix_tokens,
+                session.cached_tokens,
+                new_tokens,
+                speed,
             )
             prefill_peak = mx.get_peak_memory()
             first = None
